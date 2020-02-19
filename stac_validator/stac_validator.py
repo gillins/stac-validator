@@ -243,7 +243,7 @@ class StacValidate:
         urls = []
 
         for link in stac_content.get("links", []):
-            if link["rel"] in ["child", "item"]:
+            if link["rel"] in ["data", "item", "items"]:
                 urls.append(urljoin(stac_path, link["href"]).strip())
         return urls
 
@@ -303,7 +303,10 @@ class StacValidate:
 
         fpath = Path(stac_path)
 
-        Collections_Fields = ["keywords", "license", "title", "provider", "version", "description", "stac_version"]
+        Collections_Fields = ["id", "description", "links", "extent", "stac_version", "license"]
+        FeatureCollections_Fields = ["links", "collections"]
+        Features_Fields = ["collectionId"]
+        Catalog_Fields = ["links", "description", "stac_version", "id"]
 
         message = {}
         status = {
@@ -317,9 +320,9 @@ class StacValidate:
         if err_message:
             status["unknown"] = 1
             return err_message, status, []
-
+            
         # Check STAC Type
-        if "catalog" in fpath.stem:
+        if type(stac_content) is dict and all(field in stac_content.keys() for field in Catalog_Fields):
             # Congratulations, It's a Catalog!
             logger.info("STAC is a Catalog")
             message["asset_type"] = "catalog"
@@ -337,9 +340,8 @@ class StacValidate:
             else:
                 children = []
 
-        elif type(stac_content) is dict and any(field in Collections_Fields for field in stac_content.keys()):
+        elif type(stac_content) is dict and all(field in stac_content.keys() for field in Collections_Fields):
             # Congratulations, It's a Collection!
-            # Collections will validate as catalog as well.
             logger.info("STAC is a Collection")
             message["asset_type"] = "collection"
             is_valid_stac, err_message = self.validate_json(stac_content, self.fetch_spec("collection"))
@@ -354,6 +356,30 @@ class StacValidate:
 
             if self.follow:
                 children = self._get_children_urls(stac_content, stac_path)
+            else:
+                children = []
+
+        elif type(stac_content) is dict and all(field in stac_content.keys() for field in FeatureCollections_Fields):
+            logger.info("STAC is a Feature Collection")
+            message["asset_type"] = "featurecollection"
+            if self.follow:
+            
+                children = []
+                for collection in stac_content["collections"]:
+                    child = self._get_children_urls(collection, stac_path)
+                    children.extend(child)
+            else:
+                children = []
+                
+        elif type(stac_content) is dict and all(field in stac_content.keys() for field in Features_Fields):
+            logger.info("STAC is a Features")
+            message["asset_type"] = "features"
+            if self.follow:
+            
+                children = []
+                for feature in stac_content["features"]:
+                    child = self._get_children_urls(feature, stac_path)
+                    children.extend(child)
             else:
                 children = []
 
