@@ -232,7 +232,7 @@ class StacValidate:
         return old_status
 
     @staticmethod
-    def _get_children_urls(stac_content, stac_path):
+    def _get_children_urls(stac_content, stac_path, features=False):
         """
         Return children items or catalog urls.
         :param stac_content: contents of STAC file
@@ -242,9 +242,16 @@ class StacValidate:
 
         urls = []
 
+        rels = ["data", "item", "items"]
+        if features:
+            # only look at 'self' if we are in a "Features"
+            # otherwise we get infinite recursion
+            rels.append("self")
+
         for link in stac_content.get("links", []):
-            if link["rel"] in ["data", "item", "items"]:
+            if link["rel"] in rels:
                 urls.append(urljoin(stac_path, link["href"]).strip())
+
         return urls
 
     @staticmethod
@@ -305,7 +312,7 @@ class StacValidate:
 
         Collections_Fields = ["id", "description", "links", "extent", "stac_version", "license"]
         FeatureCollections_Fields = ["links", "collections"]
-        Features_Fields = ["collectionId"]
+        Features_Fields = ["type", "features"]
         Catalog_Fields = ["links", "description", "stac_version", "id"]
 
         message = {}
@@ -372,14 +379,18 @@ class StacValidate:
                 children = []
                 
         elif type(stac_content) is dict and all(field in stac_content.keys() for field in Features_Fields):
-            logger.info("STAC is a Features")
+            logger.info("STAC is a Features " + stac_path)
             message["asset_type"] = "features"
             if self.follow:
             
                 children = []
+                featureCount = 0
                 for feature in stac_content["features"]:
-                    child = self._get_children_urls(feature, stac_path)
+                    child = self._get_children_urls(feature, stac_path, True)
                     children.extend(child)
+                    featureCount += 1
+                    if featureCount >= 1:
+                        break
             else:
                 children = []
 
@@ -390,6 +401,7 @@ class StacValidate:
             # Congratulations, It's an Item!
             logger.info("STAC is an Item")
             message["asset_type"] = "item"
+            # this is needed by line 191, but doesn't seem to exist...
             self.fetch_spec("geojson")
             is_valid_stac, err_message = self.validate_json(stac_content, self.fetch_spec("item"))
             message["valid_stac"] = is_valid_stac
